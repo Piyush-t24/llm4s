@@ -28,13 +28,28 @@ object RunnerMain extends cask.MainRoutes {
   // Get workspace path from environment variable or use default
   // scalafix:off DisableSyntax.NoSystemGetenv
   private val workspacePath = Option(System.getenv("WORKSPACE_PATH")).getOrElse("/workspace")
+  private val sandboxProfile = Option(System.getenv("WORKSPACE_SANDBOX_PROFILE")).flatMap(_.trim.toLowerCase match {
+    case "" | "permissive"        => Some(WorkspaceSandboxConfig.Permissive)
+    case "locked" | "locked-down" => Some(WorkspaceSandboxConfig.LockedDown)
+    case _                        => None
+  })
   // scalafix:on DisableSyntax.NoSystemGetenv
 
   // Detect host OS once and pass into the workspace interface (edge of configuration)
   private val isWindows: Boolean = System.getProperty("os.name").contains("Windows")
 
+  // Validate sandbox config at startup; use permissive if invalid or unset
+  private val sandboxConfig: Option[WorkspaceSandboxConfig] = sandboxProfile.flatMap { cfg =>
+    WorkspaceSandboxConfig.validate(cfg) match {
+      case Right(_) => Some(cfg)
+      case Left(err) =>
+        logger.error(s"Invalid WORKSPACE_SANDBOX_PROFILE config: $err; using permissive")
+        None
+    }
+  }
+
   // Initialize workspace interface
-  private val workspaceInterface = new WorkspaceAgentInterfaceImpl(workspacePath, isWindows)
+  private val workspaceInterface = new WorkspaceAgentInterfaceImpl(workspacePath, isWindows, sandboxConfig)
 
   // Track active connections and their last heartbeat
   private val connections                                 = new ConcurrentHashMap[cask.WsChannelActor, AtomicLong]()
@@ -323,6 +338,7 @@ object RunnerMain extends cask.MainRoutes {
 
     startHeartbeatMonitor()
     logger.info(s"Using workspace path: $workspacePath")
+    logger.info(s"Sandbox profile: ${sandboxConfig.map(_ => "configured").getOrElse("permissive (default)")}")
     logger.info(s"Heartbeat timeout: ${HeartbeatTimeoutMs}ms")
   }
 
