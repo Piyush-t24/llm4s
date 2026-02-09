@@ -67,6 +67,25 @@ object WorkspaceSandboxConfig {
   implicit val rw: ReadWriter[WorkspaceSandboxConfig] = macroRW
 
   /**
+   * Parse a sandbox profile name into a concrete config.
+   *
+   * Valid names (case-insensitive, trimmed):
+   *   - permissive or empty string  -> [[Permissive]]
+   *   - locked or locked-down       -> [[LockedDown]]
+   *
+   * Unknown names return Left with an error message instead of silently
+   * falling back, so that typos like strict do not weaken the sandbox.
+   */
+  def fromProfileName(name: String): Either[String, WorkspaceSandboxConfig] = {
+    val normalized = if (name == null) "" else name.trim.toLowerCase
+    normalized match {
+      case "" | "permissive"        => Right(Permissive)
+      case "locked" | "locked-down" => Right(LockedDown)
+      case other                    => Left("Unknown sandbox profile: '" + other + "'")
+    }
+  }
+
+  /**
    * Validates the config; returns Left with error message if invalid.
    */
   def validate(config: WorkspaceSandboxConfig): Either[String, Unit] = {

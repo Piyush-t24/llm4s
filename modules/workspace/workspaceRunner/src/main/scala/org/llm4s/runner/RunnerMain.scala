@@ -28,25 +28,40 @@ object RunnerMain extends cask.MainRoutes {
   // Get workspace path from environment variable or use default
   // scalafix:off DisableSyntax.NoSystemGetenv
   private val workspacePath = Option(System.getenv("WORKSPACE_PATH")).getOrElse("/workspace")
-  private val sandboxProfile = Option(System.getenv("WORKSPACE_SANDBOX_PROFILE")).flatMap(_.trim.toLowerCase match {
-    case "" | "permissive"        => Some(WorkspaceSandboxConfig.Permissive)
-    case "locked" | "locked-down" => Some(WorkspaceSandboxConfig.LockedDown)
-    case _                        => None
-  })
   // scalafix:on DisableSyntax.NoSystemGetenv
 
   // Detect host OS once and pass into the workspace interface (edge of configuration)
   private val isWindows: Boolean = System.getProperty("os.name").contains("Windows")
 
-  // Validate sandbox config at startup; use permissive if invalid or unset
-  private val sandboxConfig: Option[WorkspaceSandboxConfig] = sandboxProfile.flatMap { cfg =>
-    WorkspaceSandboxConfig.validate(cfg) match {
-      case Right(_) => Some(cfg)
-      case Left(err) =>
-        logger.error(s"Invalid WORKSPACE_SANDBOX_PROFILE config: $err; using permissive")
-        None
+  // Resolve sandbox config:
+  // - If WORKSPACE_SANDBOX_PROFILE is not set or empty -> default to permissive (backwards compatible)
+  // - If set to a known profile name -> use that profile (validated)
+  // - If set to an unknown name -> log error and fail fast (do NOT silently weaken sandbox)
+  // scalafix:off DisableSyntax.NoSystemGetenv
+  private val sandboxConfig: Option[WorkspaceSandboxConfig] = {
+    val rawProfile = Option(System.getenv("WORKSPACE_SANDBOX_PROFILE")).map(_.trim)
+
+    rawProfile match {
+      case None | Some("") =>
+        None // let WorkspaceAgentInterfaceImpl apply default Permissive
+
+      case Some(value) =>
+        WorkspaceSandboxConfig.fromProfileName(value) match {
+          case Right(cfg) =>
+            WorkspaceSandboxConfig.validate(cfg) match {
+              case Right(_) => Some(cfg)
+              case Left(err) =>
+                logger.error(s"Invalid WORKSPACE_SANDBOX_PROFILE config: $err; using permissive")
+                None
+            }
+
+          case Left(msg) =>
+            logger.error(s"Invalid WORKSPACE_SANDBOX_PROFILE value: $msg")
+            throw new IllegalArgumentException(msg)
+        }
     }
   }
+  // scalafix:on DisableSyntax.NoSystemGetenv
 
   // Initialize workspace interface
   private val workspaceInterface = new WorkspaceAgentInterfaceImpl(workspacePath, isWindows, sandboxConfig)

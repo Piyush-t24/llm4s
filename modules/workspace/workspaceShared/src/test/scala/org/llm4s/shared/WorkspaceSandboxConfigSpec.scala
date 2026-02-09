@@ -32,4 +32,18 @@ class WorkspaceSandboxConfigSpec extends AnyFlatSpec with Matchers {
   it should "have Permissive with shellAllowed=true" in {
     WorkspaceSandboxConfig.Permissive.shellAllowed shouldBe true
   }
+
+  it should "parse known profile names" in {
+    WorkspaceSandboxConfig.fromProfileName("permissive") shouldBe Right(WorkspaceSandboxConfig.Permissive)
+    WorkspaceSandboxConfig.fromProfileName("") shouldBe Right(WorkspaceSandboxConfig.Permissive)
+    WorkspaceSandboxConfig.fromProfileName("locked") shouldBe Right(WorkspaceSandboxConfig.LockedDown)
+    WorkspaceSandboxConfig.fromProfileName("locked-down") shouldBe Right(WorkspaceSandboxConfig.LockedDown)
+  }
+
+  it should "reject unknown profile names" in {
+    WorkspaceSandboxConfig.fromProfileName("strict") shouldBe Left("Unknown sandbox profile: 'strict'")
+    WorkspaceSandboxConfig.fromProfileName("unknown-profile") shouldBe Left(
+      "Unknown sandbox profile: 'unknown-profile'"
+    )
+  }
 }

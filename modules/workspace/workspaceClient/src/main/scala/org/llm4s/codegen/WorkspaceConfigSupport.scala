@@ -40,17 +40,28 @@ object WorkspaceConfigSupport {
    */
   def loadSandboxConfig(): Result[WorkspaceSandboxConfig] = {
     val profileOpt = ConfigSource.default.at("llm4s.workspace.sandbox.profile").load[String].toOption
-    val config = profileOpt
-      .flatMap(p =>
-        p.trim.toLowerCase match {
-          case "locked" | "locked-down" => Some(WorkspaceSandboxConfig.LockedDown)
-          case "permissive" | ""        => Some(WorkspaceSandboxConfig.Permissive)
-          case _                        => None
-        }
-      )
-      .getOrElse(WorkspaceSandboxConfig.Permissive)
 
-    WorkspaceSandboxConfig.validate(config).left.map(msg => ConfigurationError(msg, Nil)).map(_ => config)
+    val baseConfig: Result[WorkspaceSandboxConfig] =
+      profileOpt match {
+        // No profile configured -> default to permissive (backwards compatible)
+        case None =>
+          Right(WorkspaceSandboxConfig.Permissive)
+
+        // Profile string provided -> must parse to a known profile
+        case Some(value) =>
+          WorkspaceSandboxConfig
+            .fromProfileName(value)
+            .left
+            .map(msg => ConfigurationError(msg, Nil))
+      }
+
+    baseConfig.flatMap { cfg =>
+      WorkspaceSandboxConfig
+        .validate(cfg)
+        .left
+        .map(msg => ConfigurationError(msg, Nil))
+        .map(_ => cfg)
+    }
   }
 
   def load(): Result[WorkspaceSettings] = {
